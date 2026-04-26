@@ -17,7 +17,6 @@ const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const driverRoutes = require('./routes/driverRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
-const maintenanceRoutes = require('./routes/maintenanceRoutes');
 const auditRoutes = require('./routes/auditRoutes');
 //const roleRoutes = require('./routes/roleRoutes'); // If you created role management
 
@@ -32,10 +31,12 @@ app.use(helmet({
     contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
 }));
 app.use(cors({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
-    credentials: true,
-    optionsSuccessStatus: 200
+  origin: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization"],
+  credentials: true
 }));
+
 app.use(compression());
 
 // File upload middleware
@@ -57,11 +58,9 @@ const fs = require('fs').promises;
 const createUploadDirectories = async () => {
     const dirs = [
         path.join(__dirname, '../data/profiles/drivers'),
-        path.join(__dirname, '../data/licenses/drivers'),
         path.join(__dirname, '../data/documents/drivers'),
         path.join(__dirname, '../data/profiles/users'),
         path.join(__dirname, '../data/vehicles/documents'),
-        path.join(__dirname, '../data/maintenance/documents')
     ];
     
     for (const dir of dirs) {
@@ -102,7 +101,6 @@ app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/drivers', driverRoutes);
 app.use('/api/vehicles', vehicleRoutes);
-app.use('/api/maintenance', maintenanceRoutes);
 app.use('/api/audit-logs', auditRoutes);
 //app.use('/api/roles', roleRoutes); // If you created role management
 
@@ -171,14 +169,6 @@ const startServer = async () => {
             console.log(`   │   ├── PUT    /api/vehicles/:id/assign (Assign to driver)`);
             console.log(`   │   └── PUT    /api/vehicles/:id/unassign (Unassign from driver)`);
             console.log(`   │`);
-            console.log(`   ├── Maintenance Routes:`);
-            console.log(`   │   ├── POST   /api/maintenance (Schedule maintenance)`);
-            console.log(`   │   ├── GET    /api/maintenance (List all maintenance)`);
-            console.log(`   │   ├── GET    /api/maintenance/stats (Maintenance statistics)`);
-            console.log(`   │   ├── GET    /api/maintenance/:id (Get maintenance details)`);
-            console.log(`   │   ├── PUT    /api/maintenance/:id (Update maintenance)`);
-            console.log(`   │   └── DELETE /api/maintenance/:id (Delete maintenance)`);
-            console.log(`   │`);
             console.log(`   ├── Audit Log Routes (Admin only):`);
             console.log(`   │   ├── GET    /api/audit-logs (View all audit logs)`);
             console.log(`   │   ├── GET    /api/audit-logs/stats (Audit statistics)`);
@@ -202,3 +192,4 @@ const startServer = async () => {
 startServer();
 
 module.exports = app;
+
