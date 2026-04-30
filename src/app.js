@@ -26,17 +26,35 @@ const auditMiddleware = require('./middleware/auditMiddleware');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Middleware
+// ============= MIDDLEWARE =============
+
+// Security headers (relaxed for development)
 app.use(helmet({
     contentSecurityPolicy: process.env.NODE_ENV === 'production' ? undefined : false,
-}));
-app.use(cors({
-  origin: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization"],
-  credentials: true
+    crossOriginResourcePolicy: { policy: "cross-origin" }
 }));
 
+// CORS Configuration - FIXED for ngrok
+app.use(cors({
+    origin: true, // Allows any origin (including ngrok URLs)
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allowedHeaders: [
+        "Content-Type", 
+        "Authorization",
+        "ngrok-skip-browser-warning", // Required for free ngrok
+        "Accept",
+        "X-Requested-With",
+        "Origin"
+    ],
+    exposedHeaders: ["Content-Range", "X-Content-Range"],
+    credentials: true,
+    preflightContinue: false,
+    optionsSuccessStatus: 204
+}));
+
+// REMOVED: app.options('*', cors()); - This line causes the error
+
+// Compression for better performance
 app.use(compression());
 
 // File upload middleware
@@ -47,13 +65,23 @@ app.use(fileUpload({
     createParentPath: true
 }));
 
+// Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
+// Logging (only errors in production)
+if (process.env.NODE_ENV === 'development') {
+    app.use(morgan('dev'));
+} else {
+    app.use(morgan('combined', { 
+        skip: (req, res) => res.statusCode < 400 
+    }));
+}
 
 // Serve static files for uploaded content
 app.use('/data', express.static(path.join(__dirname, '../data')));
 
-// Create upload directories if they don't exist
+// ============= CREATE UPLOAD DIRECTORIES =============
 const fs = require('fs').promises;
 const createUploadDirectories = async () => {
     const dirs = [
@@ -64,36 +92,56 @@ const createUploadDirectories = async () => {
     ];
     
     for (const dir of dirs) {
-        await fs.mkdir(dir, { recursive: true }).catch(() => {});
+        try {
+            await fs.mkdir(dir, { recursive: true });
+        } catch (err) {
+            console.log(`Note: Could not create directory ${dir}: ${err.message}`);
+        }
     }
 };
 createUploadDirectories();
 
-// Only log errors, not every request
-if (process.env.NODE_ENV === 'development') {
-    app.use(morgan('dev', { skip: (req, res) => res.statusCode < 400 }));
-}
+// ============= ROUTES =============
 
-// Routes
-app.get('/', (req, res) => {
-    res.json({
-        name: 'Fleet Management API',
-        version: '1.0.0',
-        status: 'running',
-        timestamp: new Date().toISOString()
-    });
-});
-
+// Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({
         status: 'healthy',
         timestamp: new Date().toISOString(),
         uptime: process.uptime(),
-        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected'
+        database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+        environment: process.env.NODE_ENV || 'development'
     });
 });
 
-// Apply audit middleware to all API routes (optional - you can also apply per route)
+// Root endpoint
+app.get('/', (req, res) => {
+    res.json({
+        name: 'Fleet Management API',
+        version: '2.0.0',
+        status: 'running',
+        timestamp: new Date().toISOString(),
+        endpoints: {
+            health: '/health',
+            api: '/api',
+            auth: '/api/auth',
+            users: '/api/users',
+            drivers: '/api/drivers',
+            vehicles: '/api/vehicles',
+            audit: '/api/audit-logs'
+        }
+    });
+});
+
+// Debug middleware to log requests (optional - remove in production)
+app.use((req, res, next) => {
+    if (process.env.NODE_ENV === 'development') {
+        console.log(`${req.method} ${req.path} - ${req.ip}`);
+    }
+    next();
+});
+
+// Apply audit middleware to all API routes (optional)
 // app.use('/api', auditMiddleware);
 
 // API Routes
@@ -104,33 +152,83 @@ app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/audit-logs', auditRoutes);
 //app.use('/api/roles', roleRoutes); // If you created role management
 
-// 404 Handler
+// ============= ERROR HANDLING =============
+
+// 404 Handler - Route not found
 app.use((req, res) => {
     res.status(404).json({
         success: false,
         message: 'Route not found',
-        path: req.originalUrl
+        path: req.originalUrl,
+        method: req.method
     });
 });
 
-// Error Handler
+// Global Error Handler
 app.use((err, req, res, next) => {
-    console.error('❌ Error:', err);
+    console.error('❌ Error:', {
+        message: err.message,
+        stack: process.env.NODE_ENV === 'development' ? err.stack : undefined,
+        path: req.path,
+        method: req.method
+    });
+    
+    // Mongoose validation error
+    if (err.name === 'ValidationError') {
+        const messages = Object.values(err.errors).map(e => e.message);
+        return res.status(400).json({
+            success: false,
+            message: 'Validation error',
+            errors: messages
+        });
+    }
+    
+    // Mongoose duplicate key error
+    if (err.code === 11000) {
+        const field = Object.keys(err.keyPattern)[0];
+        return res.status(409).json({
+            success: false,
+            message: `Duplicate value for ${field}. Please use a different value.`
+        });
+    }
+    
+    // JWT errors
+    if (err.name === 'JsonWebTokenError') {
+        return res.status(401).json({
+            success: false,
+            message: 'Invalid token. Please login again.'
+        });
+    }
+    
+    if (err.name === 'TokenExpiredError') {
+        return res.status(401).json({
+            success: false,
+            message: 'Token expired. Please login again.'
+        });
+    }
+    
+    // Default error
     res.status(err.statusCode || 500).json({
         success: false,
-        message: err.message || 'Internal Server Error'
+        message: err.message || 'Internal server error',
+        ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
     });
 });
 
-// Start server
+// ============= START SERVER =============
 const startServer = async () => {
     try {
         await connectDB();
-        app.listen(PORT, () => {
-            console.log(`\n🚀 Fleet Management API`);
-            console.log(`   Port: ${PORT}`);
+        
+        app.listen(PORT, '0.0.0.0', () => {
+            console.log(`\n${'='.repeat(50)}`);
+            console.log(`🚀 Fleet Management API`);
+            console.log(`${'='.repeat(50)}`);
+            console.log(`   Port:        ${PORT}`);
             console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
-            console.log(`\n📡 Endpoints:`);
+            console.log(`   Database:    ${mongoose.connection.readyState === 1 ? 'Connected ✅' : 'Disconnected ❌'}`);
+            console.log(`${'='.repeat(50)}`);
+            console.log(`\n📡 Available Endpoints:`);
             console.log(`   ├── GET  /`);
             console.log(`   ├── GET  /health`);
             console.log(`   │`);
@@ -146,42 +244,44 @@ const startServer = async () => {
             console.log(`   │   ├── GET    /api/users/:id`);
             console.log(`   │   ├── PUT    /api/users/:id`);
             console.log(`   │   ├── DELETE /api/users/:id`);
-            console.log(`   │   ├── GET    /api/users/stats/count`);
+            console.log(`   │   ├── GET    /api/users/stats`);
             console.log(`   │   └── GET    /api/users/role/:role`);
             console.log(`   │`);
             console.log(`   ├── Driver Routes:`);
-            console.log(`   │   ├── POST   /api/drivers (Add driver)`);
-            console.log(`   │   ├── GET    /api/drivers (List all drivers)`);
-            console.log(`   │   ├── GET    /api/drivers/:id (Get driver details)`);
-            console.log(`   │   ├── PUT    /api/drivers/:id (Update driver)`);
-            console.log(`   │   ├── DELETE /api/drivers/:id (Delete driver)`);
-            console.log(`   │   ├── GET    /api/drivers/status/:status (Filter by status)`);
-            console.log(`   │   └── PATCH  /api/drivers/:id/status (Update status)`);
+            console.log(`   │   ├── POST   /api/drivers`);
+            console.log(`   │   ├── GET    /api/drivers`);
+            console.log(`   │   ├── GET    /api/drivers/:id`);
+            console.log(`   │   ├── PUT    /api/drivers/:id`);
+            console.log(`   │   ├── DELETE /api/drivers/:id`);
+            console.log(`   │   ├── GET    /api/drivers/status/:status`);
+            console.log(`   │   └── PATCH  /api/drivers/:id/status`);
             console.log(`   │`);
             console.log(`   ├── Vehicle Routes:`);
-            console.log(`   │   ├── POST   /api/vehicles (Add new vehicle)`);
-            console.log(`   │   ├── GET    /api/vehicles (List all vehicles)`);
-            console.log(`   │   ├── GET    /api/vehicles/available (Available vehicles)`);
-            console.log(`   │   ├── GET    /api/vehicles/status/:status (Filter by status)`);
-            console.log(`   │   ├── GET    /api/vehicles/:id (Get vehicle details)`);
-            console.log(`   │   ├── PUT    /api/vehicles/:id (Update vehicle)`);
-            console.log(`   │   ├── DELETE /api/vehicles/:id (Delete vehicle)`);
-            console.log(`   │   ├── PUT    /api/vehicles/:id/assign (Assign to driver)`);
-            console.log(`   │   └── PUT    /api/vehicles/:id/unassign (Unassign from driver)`);
+            console.log(`   │   ├── POST   /api/vehicles`);
+            console.log(`   │   ├── GET    /api/vehicles`);
+            console.log(`   │   ├── GET    /api/vehicles/available`);
+            console.log(`   │   ├── GET    /api/vehicles/status/:status`);
+            console.log(`   │   ├── GET    /api/vehicles/:id`);
+            console.log(`   │   ├── PUT    /api/vehicles/:id`);
+            console.log(`   │   ├── DELETE /api/vehicles/:id`);
+            console.log(`   │   ├── PUT    /api/vehicles/:id/assign`);
+            console.log(`   │   └── PUT    /api/vehicles/:id/unassign`);
             console.log(`   │`);
-            console.log(`   ├── Audit Log Routes (Admin only):`);
-            console.log(`   │   ├── GET    /api/audit-logs (View all audit logs)`);
-            console.log(`   │   ├── GET    /api/audit-logs/stats (Audit statistics)`);
-            console.log(`   │   ├── GET    /api/audit-logs/user/:userId (User activity)`);
-            console.log(`   │   └── GET    /api/audit-logs/:id (View log details)`);
+            console.log(`   ├── Audit Log Routes:`);
+            console.log(`   │   ├── GET    /api/audit-logs`);
+            console.log(`   │   ├── GET    /api/audit-logs/stats`);
+            console.log(`   │   ├── GET    /api/audit-logs/user/:userId`);
+            console.log(`   │   └── GET    /api/audit-logs/:id`);
             console.log(`   │`);
-            console.log(`   └── Role Routes (Admin only):`);
-            console.log(`       ├── POST   /api/roles (Create custom role)`);
-            console.log(`       ├── GET    /api/roles (List all roles)`);
-            console.log(`       ├── GET    /api/roles/:id (Get role details)`);
-            console.log(`       ├── PUT    /api/roles/:id (Update role)`);
-            console.log(`       └── DELETE /api/roles/:id (Delete role)`);
-            console.log(`\n✅ API ready\n`);
+            console.log(`   └── Role Routes (if enabled):`);
+            console.log(`       ├── POST   /api/roles`);
+            console.log(`       ├── GET    /api/roles`);
+            console.log(`       ├── GET    /api/roles/:id`);
+            console.log(`       ├── PUT    /api/roles/:id`);
+            console.log(`       └── DELETE /api/roles/:id`);
+            console.log(`\n${'='.repeat(50)}`);
+            console.log(`✅ API is ready and listening on port ${PORT}`);
+            console.log(`${'='.repeat(50)}\n`);
         });
     } catch (error) {
         console.error('❌ Failed to start server:', error);
@@ -189,7 +289,21 @@ const startServer = async () => {
     }
 };
 
+// Handle graceful shutdown
+process.on('SIGINT', async () => {
+    console.log('\n🛑 Received SIGINT. Closing server...');
+    await mongoose.disconnect();
+    console.log('✅ Database disconnected');
+    process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+    console.log('\n🛑 Received SIGTERM. Closing server...');
+    await mongoose.disconnect();
+    console.log('✅ Database disconnected');
+    process.exit(0);
+});
+
 startServer();
 
 module.exports = app;
-

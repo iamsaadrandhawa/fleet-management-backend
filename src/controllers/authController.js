@@ -1,18 +1,25 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 
-// Generate JWT Token
-const generateToken = (id) => {
+// Generate JWT Token (INCLUDING ROLE)
+const generateToken = (user) => {
     try {
-        return jwt.sign({ id }, process.env.JWT_SECRET, {
-            expiresIn: process.env.JWT_EXPIRE || '30d'
-        });
+        return jwt.sign(
+            { 
+                id: user._id, 
+                email: user.email, 
+                role: user.role  // ← THIS IS THE MISSING PIECE!
+            }, 
+            process.env.JWT_SECRET, 
+            {
+                expiresIn: process.env.JWT_EXPIRE || '30d'
+            }
+        );
     } catch (error) {
         console.error('Token generation error:', error);
         throw error;
     }
 };
-
 // @desc    Register a new user
 // @route   POST /api/auth/register
 // @access  Public
@@ -36,13 +43,13 @@ const register = async (req, res) => {
             name,
             email,
             password,
-            role: role || 'Viewer'
+            role: role || 'viewer'
         });
         console.log('User created successfully with ID:', user._id);
 
         // Generate token
         console.log('Generating token...');
-        const token = generateToken(user._id);
+        const token = generateToken(user);
         console.log('Token generated successfully');
 
         res.status(201).json({
@@ -122,7 +129,7 @@ const login = async (req, res) => {
         await user.save({ validateBeforeSave: false }); // Save without running validations
 
         // Generate token
-        const token = generateToken(user._id);
+        const token = generateToken(user);
 
         res.status(200).json({
             success: true,

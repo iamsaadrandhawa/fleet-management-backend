@@ -14,48 +14,33 @@ const {
     bulkUpdateStatus
 } = require('../controllers/userController');
 
-console.log('🔄 Loading user routes...');
-
 // All routes are protected
 router.use(protect);
 
 // User management routes
 router.route('/')
-    .get(authorize('Admin', 'Manager'), getAllUsers)
-    .post(authorize('Admin'), createUser);
+    .get(authorize('admin', 'manager'), getAllUsers)
+    .post(authorize('admin'), createUser);
 
 // Statistics
-router.get('/stats', authorize('Admin', 'Manager'), getUserStats);
+router.get('/stats', authorize('admin', 'manager'), getUserStats);
 
 // Users by role
-router.get('/role/:role', authorize('Admin', 'Manager'), getUsersByRole);
+router.get('/role/:role', authorize('admin', 'manager'), getUsersByRole);
 
 // Bulk operations
-router.patch('/bulk/status', authorize('Admin'), bulkUpdateStatus);
+router.patch('/bulk/status', authorize('admin'), bulkUpdateStatus);
 
 // User specific routes
 router.route('/:id')
-    .get(authorize('Admin', 'Manager'), getUserById)
-    .put(authorize('Admin'), updateUser)
-    .delete(authorize('Admin'), deleteUser); // Soft delete
+    .get(authorize('admin', 'manager'), getUserById)
+    .put(authorize('admin'), updateUser)
+    .delete(authorize('admin'), deleteUser);
 
 // Hard delete
-router.delete('/:id/hard', authorize('Admin'), hardDeleteUser);
+router.delete('/:id/hard', authorize('admin'), hardDeleteUser);
 
 // Password management
-router.put('/:id/password', authorize('Admin'), updateUserPassword);
-
-console.log('✅ User routes loaded with endpoints:', {
-    'GET /': 'Get all users',
-    'POST /': 'Create user',
-    'GET /stats': 'Get user statistics',
-    'GET /role/:role': 'Get users by role',
-    'PATCH /bulk/status': 'Bulk update status',
-    'GET /:id': 'Get user by ID',
-    'PUT /:id': 'Update user',
-    'DELETE /:id': 'Soft delete user',
-    'DELETE /:id/hard': 'Hard delete user',
-    'PUT /:id/password': 'Update password'
-});
+router.put('/:id/password', authorize('admin'), updateUserPassword);
 
 module.exports = router;

@@ -62,7 +62,8 @@ const createUser = async (req, res) => {
             name,
             email,
             password: hashedPassword,
-            role: role || 'Driver'
+            role: role || 'viewer',
+            isActive: true
         });
 
         res.status(201).json({
@@ -71,7 +72,9 @@ const createUser = async (req, res) => {
                 _id: user._id,
                 name: user.name,
                 email: user.email,
-                role: user.role
+                role: user.role,
+                isActive: user.isActive,
+                createdAt: user.createdAt
             }
         });
     } catch (error) {
@@ -103,30 +106,47 @@ const updateUser = async (req, res) => {
     }
 };
 
-// @desc    Delete user (soft delete)
+// @desc    Delete user (HARD DELETE - permanently remove from database)
 // @route   DELETE /api/users/:id
 // @access  Private
 const deleteUser = async (req, res) => {
-    console.log('🗑️ deleteUser called for ID:', req.params.id);
+    console.log('🗑️ PERMANENT DELETE called for ID:', req.params.id);
     try {
-        const user = await User.findByIdAndUpdate(
-            req.params.id,
-            { isActive: false },
-            { new: true }
-        );
+        // Check if user exists
+        const user = await User.findById(req.params.id);
         
         if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
         }
         
-        res.json({ success: true, message: 'User deactivated successfully' });
+        // Check if trying to delete yourself
+        if (user._id.toString() === req.user.id) {
+            return res.status(400).json({ 
+                success: false, 
+                message: 'You cannot delete your own account' 
+            });
+        }
+        
+        // PERMANENT DELETE - remove from database
+        await User.findByIdAndDelete(req.params.id);
+        
+        res.json({ 
+            success: true, 
+            message: 'User permanently deleted from database' 
+        });
     } catch (error) {
         console.error('❌ deleteUser error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
-// @desc    Hard delete user
+// @desc    Hard delete user (alias - keeps compatibility)
 // @route   DELETE /api/users/:id/hard
 // @access  Private
 const hardDeleteUser = async (req, res) => {
@@ -134,12 +154,21 @@ const hardDeleteUser = async (req, res) => {
     try {
         const user = await User.findByIdAndDelete(req.params.id);
         if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
         }
-        res.json({ success: true, message: 'User permanently deleted' });
+        res.json({ 
+            success: true, 
+            message: 'User permanently deleted' 
+        });
     } catch (error) {
         console.error('❌ hardDeleteUser error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
@@ -152,13 +181,19 @@ const updateUserPassword = async (req, res) => {
         const { newPassword } = req.body;
         
         if (!newPassword || newPassword.length < 6) {
-            return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Password must be at least 6 characters' 
+            });
         }
 
         const user = await User.findById(req.params.id);
         
         if (!user) {
-            return res.status(404).json({ success: false, message: 'User not found' });
+            return res.status(404).json({ 
+                success: false, 
+                message: 'User not found' 
+            });
         }
         
         const bcrypt = require('bcryptjs');
@@ -166,10 +201,16 @@ const updateUserPassword = async (req, res) => {
         user.password = await bcrypt.hash(newPassword, salt);
         await user.save();
         
-        res.json({ success: true, message: 'Password updated successfully' });
+        res.json({ 
+            success: true, 
+            message: 'Password updated successfully' 
+        });
     } catch (error) {
         console.error('❌ updateUserPassword error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
@@ -179,17 +220,24 @@ const updateUserPassword = async (req, res) => {
 const getUsersByRole = async (req, res) => {
     console.log('🎭 getUsersByRole called for role:', req.params.role);
     try {
-        const users = await User.find({ role: req.params.role, isActive: true })
+        const users = await User.find({ role: req.params.role })
             .select('-password');
-        res.json({ success: true, count: users.length, data: users });
+        res.json({ 
+            success: true, 
+            count: users.length, 
+            data: users 
+        });
     } catch (error) {
         console.error('❌ getUsersByRole error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
 // @desc    Get user statistics
-// @route   GET /api/users/stats/count
+// @route   GET /api/users/stats
 // @access  Private
 const getUserStats = async (req, res) => {
     console.log('📊 getUserStats called');
@@ -204,7 +252,10 @@ const getUserStats = async (req, res) => {
         });
     } catch (error) {
         console.error('❌ getUserStats error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
@@ -217,7 +268,10 @@ const bulkUpdateStatus = async (req, res) => {
         const { userIds, isActive } = req.body;
         
         if (!userIds || !Array.isArray(userIds) || userIds.length === 0) {
-            return res.status(400).json({ success: false, message: 'Please provide an array of user IDs' });
+            return res.status(400).json({ 
+                success: false, 
+                message: 'Please provide an array of user IDs' 
+            });
         }
 
         const result = await User.updateMany(
@@ -231,7 +285,10 @@ const bulkUpdateStatus = async (req, res) => {
         });
     } catch (error) {
         console.error('❌ bulkUpdateStatus error:', error);
-        res.status(500).json({ success: false, message: error.message });
+        res.status(500).json({ 
+            success: false, 
+            message: error.message 
+        });
     }
 };
 
