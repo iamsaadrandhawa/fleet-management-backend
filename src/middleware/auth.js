@@ -38,6 +38,10 @@ exports.protect = async (req, res, next) => {
         if (user.roleId) {
             try {
                 await user.populate('roleId');
+                // Set roleName from populated role for consistency
+                if (user.roleId && user.roleId.name) {
+                    user.roleName = user.roleId.name;
+                }
             } catch (populateError) {
                 console.log('Could not populate roleId (field might not exist yet)');
             }
@@ -64,22 +68,46 @@ exports.authorize = (...roles) => {
             });
         }
         
-        // Check by roleName if available, otherwise fallback to role field
-        const userRole = req.user.roleName || req.user.role;
+        // Get user role from multiple possible sources
+        let userRole = req.user.roleName || req.user.role;
+        
+        // If roleId is populated, get role name from there
+        if (!userRole && req.user.roleId) {
+            userRole = req.user.roleId.name || req.user.roleId.roleName;
+        }
+        
+        // If still no role, try to get from roleId string (not populated)
+        if (!userRole && req.user.roleId && typeof req.user.roleId === 'object') {
+            userRole = req.user.roleId.name;
+        }
+        
+        // Debug logging - remove in production
+        console.log('=== AUTHORIZE DEBUG ===');
+        console.log('User role found:', userRole);
+        console.log('Allowed roles:', roles);
+        console.log('User object keys:', Object.keys(req.user));
+        console.log('=======================');
         
         if (!userRole) {
             return res.status(403).json({
                 success: false,
-                message: 'User role not found'
+                message: 'User role not found. Please check your user configuration.'
             });
         }
         
-        if (!roles.includes(userRole.toLowerCase())) {
+        // Convert both to strings and lowercase for case-insensitive comparison
+        const userRoleStr = String(userRole).toLowerCase().trim();
+        const allowedRolesStr = roles.map(role => String(role).toLowerCase().trim());
+        
+        const isAuthorized = allowedRolesStr.includes(userRoleStr);
+        
+        if (!isAuthorized) {
             return res.status(403).json({
                 success: false,
-                message: `User role ${userRole} is not authorized to access this route`
+                message: `User role "${userRole}" is not authorized to access this route. Allowed roles: ${roles.join(', ')}`
             });
         }
+        
         next();
     };
 };

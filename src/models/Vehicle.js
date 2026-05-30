@@ -23,13 +23,13 @@ const vehicleSchema = new mongoose.Schema({
     vehicleNumber: {
         type: String,
         required: [true, 'Vehicle number is required'],
-        unique: true,
+        unique: true,  // This already creates an index
         trim: true
     },
     registrationNumber: {
         type: String,
         required: [true, 'Registration number is required'],
-        unique: true,
+        unique: true,  // This already creates an index
         trim: true
     },
     
@@ -44,12 +44,14 @@ const vehicleSchema = new mongoose.Schema({
     // Purchase Details
     purchaseDate: {
         type: Date,
-        required: [true, 'Purchase date is required']
+        required: false,
+        default: null
     },
     purchasePrice: {
         type: Number,
-        required: [true, 'Purchase price is required'],
-        min: 0
+        required: false,
+        min: 0,
+        default: 0
     },
     
     // Vehicle Specifications
@@ -62,23 +64,40 @@ const vehicleSchema = new mongoose.Schema({
         enum: ['Petrol', 'Diesel', 'Electric', 'Hybrid', 'CNG'],
         required: [true, 'Fuel type is required']
     },
+    transmission: {
+        type: String,
+        enum: ['Manual', 'Automatic', 'CVT', 'AMT'],
+        required: false,
+        default: 'Manual'
+    },
+    seatingCapacity: {
+        type: Number,
+        required: false,
+        min: 1,
+        max: 100,
+        default: 4
+    },
     engineNumber: {
         type: String,
-        trim: true
+        trim: true,
+        required: [true, 'Engine number is required']
     },
     chassisNumber: {
         type: String,
-        trim: true
+        trim: true,
+        required: [true, 'Chassis number is required']
     },
     
     // Insurance and Expiry
     insuranceExpiry: {
         type: Date,
-        required: [true, 'Insurance expiry date is required']
+        required: false,
+        default: null
     },
     registrationExpiry: {
         type: Date,
-        required: [true, 'Registration expiry date is required']
+        required: false,
+        default: null
     },
     
     // Status and Assignment
@@ -99,6 +118,14 @@ const vehicleSchema = new mongoose.Schema({
         trim: true
     },
     
+    // Vehicle Category
+    vehicleCategory: {
+        type: String,
+        required: false,
+        trim: true,
+        default: 'Car'
+    },
+    
     // Audit Fields
     createdBy: {
         type: mongoose.Schema.Types.ObjectId,
@@ -113,6 +140,16 @@ const vehicleSchema = new mongoose.Schema({
     timestamps: true
 });
 
+// Only create indexes for NON-unique fields that need performance optimization
+// Remove duplicate indexes - unique indexes are already created by 'unique: true'
+vehicleSchema.index({ status: 1 });
+vehicleSchema.index({ assignedTo: 1 });
+vehicleSchema.index({ fuelType: 1 });
+vehicleSchema.index({ year: -1 }); // For sorting by year
+vehicleSchema.index({ createdAt: -1 }); // For sorting by creation date
 
+// Compound index for common queries
+vehicleSchema.index({ status: 1, assignedTo: 1 });
+vehicleSchema.index({ company: 1, model: 1 });
 
 module.exports = mongoose.model('Vehicle', vehicleSchema);

@@ -18,19 +18,19 @@ router.use(protect);
 
 // Vehicle management routes
 router.route('/')
-    .post(authorize('Admin', 'Manager'), addVehicle)
-    .get(authorize('Admin', 'Manager', 'Dispatcher'), getAllVehicles);
+    .post(authorize('admin', 'manager'), addVehicle)
+    .get(authorize('admin', 'manager', 'dispatcher'), getAllVehicles);
 
-router.get('/available', authorize('Admin', 'Manager', 'Dispatcher'), getAvailableVehicles);
-router.get('/status/:status', authorize('Admin', 'Manager', 'Dispatcher'), getVehiclesByStatus);
+router.get('/available', authorize('admin', 'manager', 'dispatcher'), getAvailableVehicles);
+router.get('/status/:status', authorize('admin', 'manager', 'dispatcher'), getVehiclesByStatus);
 
 // Assignment routes
-router.put('/:id/assign', authorize('Admin', 'Manager'), assignVehicleToDriver);
-router.put('/:id/unassign', authorize('Admin', 'Manager'), unassignVehicleFromDriver);
+router.put('/:id/assign', authorize('admin', 'manager'), assignVehicleToDriver);
+router.put('/:id/unassign', authorize('admin', 'manager'), unassignVehicleFromDriver);
 
 router.route('/:id')
-    .get(authorize('Admin', 'Manager', 'Dispatcher'), getVehicleById)
-    .put(authorize('Admin', 'Manager'), updateVehicle)
-    .delete(authorize('Admin'), deleteVehicle);
+    .get(authorize('admin', 'manager', 'dispatcher'), getVehicleById)
+    .put(authorize('admin', 'manager'), updateVehicle)
+    .delete(authorize('admin'), deleteVehicle);
 
 module.exports = router;

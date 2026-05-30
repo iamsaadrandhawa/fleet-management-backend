@@ -4,37 +4,21 @@ const Driver = require('../models/Driver');
 // @desc    Add a new vehicle
 // @route   POST /api/vehicles
 // @access  Private (Admin/Manager)
+// @desc    Add a new vehicle
+// @route   POST /api/vehicles
+// @access  Private (Admin/Manager)
 const addVehicle = async (req, res) => {
     try {
         console.log('Adding new vehicle...');
+        console.log('Request body:', req.body);
 
-        // Prepare vehicle data
-        const vehicleData = {
-            company: req.body.company,
-            model: req.body.model,
-            year: req.body.year,
-            vehicleNumber: req.body.vehicleNumber,
-            registrationNumber: req.body.registrationNumber,
-            meterReading: req.body.meterReading,
-            purchaseDate: req.body.purchaseDate,
-            purchasePrice: req.body.purchasePrice,
-            color: req.body.color,
-            fuelType: req.body.fuelType,
-            engineNumber: req.body.engineNumber,
-            chassisNumber: req.body.chassisNumber,
-            insuranceExpiry: req.body.insuranceExpiry,
-            registrationExpiry: req.body.registrationExpiry,
-            notes: req.body.notes,
-            createdBy: req.user.id
-        };
-
-        // Validate required fields
+        // ✅ ONLY validate these fields (NO DATES)
         const requiredFields = [
-            'company', 'model', 'year', 'vehicleNumber', 'registrationNumber', 
-            'meterReading', 'purchaseDate', 'purchasePrice', 'fuelType',
-            'insuranceExpiry', 'registrationExpiry'
+            'company', 'model', 'year', 'vehicleNumber', 
+            'registrationNumber', 'fuelType', 'engineNumber', 'chassisNumber'
         ];
         
+        // Check required fields
         for (const field of requiredFields) {
             if (!req.body[field]) {
                 return res.status(400).json({
@@ -44,7 +28,34 @@ const addVehicle = async (req, res) => {
             }
         }
 
-        // Check if vehicle with same vehicleNumber or registrationNumber already exists
+        // ✅ Prepare vehicle data - ONLY include what's provided
+        const vehicleData = {
+            company: req.body.company,
+            model: req.body.model,
+            year: req.body.year,
+            vehicleNumber: req.body.vehicleNumber,
+            registrationNumber: req.body.registrationNumber,
+            meterReading: req.body.meterReading || 0,
+            fuelType: req.body.fuelType,
+            engineNumber: req.body.engineNumber,
+            chassisNumber: req.body.chassisNumber,
+            createdBy: req.user.id,
+            // Optional fields - only add if they exist
+            ...(req.body.color && { color: req.body.color }),
+            ...(req.body.transmission && { transmission: req.body.transmission }),
+            ...(req.body.seatingCapacity && { seatingCapacity: req.body.seatingCapacity }),
+            ...(req.body.vehicleCategory && { vehicleCategory: req.body.vehicleCategory }),
+            ...(req.body.status && { status: req.body.status }),
+            ...(req.body.assignedDriver && { assignedTo: req.body.assignedDriver }),
+            ...(req.body.notes && { notes: req.body.notes }),
+            // Date fields - ONLY add if they exist (completely optional)
+            ...(req.body.purchaseDate && { purchaseDate: req.body.purchaseDate }),
+            ...(req.body.purchasePrice && { purchasePrice: req.body.purchasePrice }),
+            ...(req.body.insuranceExpiry && { insuranceExpiry: req.body.insuranceExpiry }),
+            ...(req.body.registrationExpiry && { registrationExpiry: req.body.registrationExpiry })
+        };
+
+        // Check if vehicle already exists
         const existingVehicle = await Vehicle.findOne({
             $or: [
                 { vehicleNumber: vehicleData.vehicleNumber },
@@ -70,6 +81,16 @@ const addVehicle = async (req, res) => {
 
     } catch (error) {
         console.error('Add vehicle error:', error);
+        
+        // Handle validation errors
+        if (error.name === 'ValidationError') {
+            const messages = Object.values(error.errors).map(err => err.message);
+            return res.status(400).json({
+                success: false,
+                message: messages.join(', ')
+            });
+        }
+        
         res.status(500).json({
             success: false,
             message: 'Server error while adding vehicle',
@@ -160,16 +181,24 @@ const updateVehicle = async (req, res) => {
             });
         }
 
-        // Update fields
+        // Update regular fields (if provided)
         const updateFields = [
             'company', 'model', 'year', 'vehicleNumber', 'registrationNumber',
-            'meterReading', 'color', 'fuelType', 'engineNumber', 'chassisNumber',
-            'insuranceExpiry', 'registrationExpiry', 'notes', 'status'
+            'meterReading', 'color', 'fuelType', 'transmission', 'seatingCapacity',
+            'engineNumber', 'chassisNumber', 'vehicleCategory', 'notes', 'status', 'assignedTo'
         ];
 
         updateFields.forEach(field => {
-            if (req.body[field]) vehicle[field] = req.body[field];
+            if (req.body[field] !== undefined) {
+                vehicle[field] = req.body[field];
+            }
         });
+
+        // Update date fields (ONLY if provided, can be null to clear)
+        if (req.body.purchaseDate !== undefined) vehicle.purchaseDate = req.body.purchaseDate || null;
+        if (req.body.purchasePrice !== undefined) vehicle.purchasePrice = req.body.purchasePrice || 0;
+        if (req.body.insuranceExpiry !== undefined) vehicle.insuranceExpiry = req.body.insuranceExpiry || null;
+        if (req.body.registrationExpiry !== undefined) vehicle.registrationExpiry = req.body.registrationExpiry || null;
 
         vehicle.updatedBy = req.user.id;
         await vehicle.save();
@@ -264,7 +293,7 @@ const assignVehicleToDriver = async (req, res) => {
         vehicle.updatedBy = req.user.id;
         await vehicle.save();
 
-        // Also update driver's currentVehicle if you want
+        // Also update driver's currentVehicle
         driver.currentVehicle = vehicle._id;
         await driver.save();
 
@@ -316,8 +345,7 @@ const unassignVehicleFromDriver = async (req, res) => {
             });
         }
 
-        // Update driver's currentVehicle if you have that relationship
-        const Driver = require('../models/Driver');
+        // Update driver's currentVehicle
         await Driver.findByIdAndUpdate(vehicle.assignedTo, {
             $unset: { currentVehicle: 1 }
         });
