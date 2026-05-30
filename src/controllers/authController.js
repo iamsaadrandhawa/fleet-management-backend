@@ -1,261 +1,87 @@
+// controllers/authController.js
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-
-// Generate JWT Token (INCLUDING ROLE)
-const generateToken = (user) => {
-    try {
-        return jwt.sign(
-            { 
-                id: user._id, 
-                email: user.email, 
-                role: user.role  // ← THIS IS THE MISSING PIECE!
-            }, 
-            process.env.JWT_SECRET, 
-            {
-                expiresIn: process.env.JWT_EXPIRE || '30d'
-            }
-        );
-    } catch (error) {
-        console.error('Token generation error:', error);
-        throw error;
-    }
-};
-// @desc    Register a new user
-// @route   POST /api/auth/register
-// @access  Public
-const register = async (req, res) => {
-    try {
-        console.log('Registration attempt:', req.body.email);
-        const { name, email, password, role } = req.body;
-
-        // Check if user already exists
-        const existingUser = await User.findOne({ email });
-        if (existingUser) {
-            return res.status(400).json({
-                success: false,
-                message: 'User already exists with this email'
-            });
-        }
-
-        // Create new user
-        console.log('Creating user...');
-        const user = await User.create({
-            name,
-            email,
-            password,
-            role: role || 'viewer'
-        });
-        console.log('User created successfully with ID:', user._id);
-
-        // Generate token
-        console.log('Generating token...');
-        const token = generateToken(user);
-        console.log('Token generated successfully');
-
-        res.status(201).json({
-            success: true,
-            message: 'User registered successfully',
-            data: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                isActive: user.isActive,
-                createdAt: user.createdAt,
-                token
-            }
-        });
-
-    } catch (error) {
-        console.error('Registration error details:', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack
-        });
-        
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(err => err.message);
-            return res.status(400).json({
-                success: false,
-                message: 'Validation error',
-                errors: messages
-            });
-        }
-
-        res.status(500).json({
-            success: false,
-            message: 'Server error during registration'
-        });
-    }
-};
+const User = require('../models/User'); // ✅ Make sure this path is correct
 
 // @desc    Login user
 // @route   POST /api/auth/login
 // @access  Public
-const login = async (req, res) => {
+exports.login = async (req, res) => {
     try {
         const { email, password } = req.body;
-
-        // Find user by email and include password field
+        
+        console.log('=== LOGIN DEBUG ===');
+        console.log('Email:', email);
+        console.log('User model type:', typeof User);
+        console.log('User model:', User);
+        
+        // Check if User exists and is a function
+        if (!User || typeof User.findOne !== 'function') {
+            console.error('User model is not properly loaded!');
+            return res.status(500).json({
+                success: false,
+                message: 'Database model error. Please try again later.'
+            });
+        }
+        
+        // Find user by email
         const user = await User.findOne({ email }).select('+password');
-
+        
         if (!user) {
+            console.log('User not found:', email);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
             });
         }
-
-        // Check if user is active
-        if (!user.isActive) {
-            return res.status(401).json({
-                success: false,
-                message: 'Your account has been deactivated. Please contact admin.'
-            });
-        }
-
+        
+        console.log('User found:', user.email);
+        
         // Check password
-        const isPasswordMatch = await user.comparePassword(password);
-
-        if (!isPasswordMatch) {
+        const isMatch = await user.comparePassword(password);
+        
+        if (!isMatch) {
+            console.log('Password mismatch for:', email);
             return res.status(401).json({
                 success: false,
                 message: 'Invalid credentials'
             });
         }
-
+        
+        console.log('Login successful for:', email);
+        
         // Update last login
         user.lastLogin = new Date();
-        await user.save({ validateBeforeSave: false }); // Save without running validations
-
+        await user.save();
+        
         // Generate token
-        const token = generateToken(user);
-
-        res.status(200).json({
-            success: true,
-            message: 'Login successful',
-            data: {
-                _id: user._id,
-                name: user.name,
+        const token = jwt.sign(
+            { 
+                id: user._id, 
                 email: user.email,
-                role: user.role,
-                isActive: user.isActive,
-                lastLogin: user.lastLogin,
-                createdAt: user.createdAt,
-                token
-            }
-        });
-
-    } catch (error) {
-        console.error('Login error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error during login'
-        });
-    }
-};
-
-// @desc    Get user profile
-// @route   GET /api/auth/profile
-// @access  Private
-const getProfile = async (req, res) => {
-    try {
-        // User is already attached to req by the protect middleware
-        const user = await User.findById(req.user.id);
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        res.status(200).json({
-            success: true,
-            data: {
-                _id: user._id,
-                name: user.name,
-                email: user.email,
-                role: user.role,
-                isActive: user.isActive,
-                phone: user.phone,
-                address: user.address,
-                lastLogin: user.lastLogin,
-                createdAt: user.createdAt,
-                updatedAt: user.updatedAt
-            }
-        });
-
-    } catch (error) {
-        console.error('Get profile error:', error);
-        res.status(500).json({
-            success: false,
-            message: 'Server error while fetching profile'
-        });
-    }
-};
-
-// @desc    Update user profile
-// @route   PUT /api/auth/profile
-// @access  Private
-const updateProfile = async (req, res) => {
-    try {
-        const { name, email, phone, address } = req.body;
-        
-        // Find user and update
-        const user = await User.findByIdAndUpdate(
-            req.user.id,
-            { name, email, phone, address },
-            { new: true, runValidators: true }
+                roleId: user.roleId,
+                roleName: user.roleName
+            },
+            process.env.JWT_SECRET || 'your_secret_key_here',
+            { expiresIn: '30d' }
         );
-
-        if (!user) {
-            return res.status(404).json({
-                success: false,
-                message: 'User not found'
-            });
-        }
-
-        res.status(200).json({
+        
+        res.json({
             success: true,
-            message: 'Profile updated successfully',
-            data: {
-                _id: user._id,
-                name: user.name,
+            token,
+            user: {
+                id: user._id,
+                firstName: user.firstName,
+                lastName: user.lastName,
                 email: user.email,
-                role: user.role,
-                isActive: user.isActive,
-                phone: user.phone,
-                address: user.address,
-                lastLogin: user.lastLogin,
-                createdAt: user.createdAt,
-                updatedAt: user.updatedAt
+                roleName: user.roleName,
+                employeeId: user.employeeId
             }
         });
-
     } catch (error) {
-        console.error('Update profile error:', error);
-        
-        if (error.name === 'ValidationError') {
-            const messages = Object.values(error.errors).map(err => err.message);
-            return res.status(400).json({
-                success: false,
-                message: 'Validation error',
-                errors: messages
-            });
-        }
-
+        console.error('Login error details:', error);
         res.status(500).json({
             success: false,
-            message: 'Server error while updating profile'
+            message: error.message || 'Server error'
         });
     }
-};
-
-// Export all functions
-module.exports = {
-    register,
-    login,
-    getProfile,
-    updateProfile
 };

@@ -1,89 +1,184 @@
+// middleware/auth.js
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { Role } = require('../models/Ledger'); // Import Role model
 
-// Protect routes - verify JWT token
-const protect = async (req, res, next) => {
+// Protect routes - authentication middleware
+exports.protect = async (req, res, next) => {
     let token;
-
-    // Check if token exists in headers
+    
+    // Check for token in headers
     if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
-        try {
-            // Get token from header
-            token = req.headers.authorization.split(' ')[1];
-
-            // Verify token
-            const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-            // Get user from token (exclude password)
-            req.user = await User.findById(decoded.id).select('-password');
-
-            if (!req.user) {
-                return res.status(401).json({ 
-                    success: false, 
-                    message: 'User not found' 
-                });
-            }
-
-            // Check if user is active
-            if (!req.user.isActive) {
-                return res.status(401).json({ 
-                    success: false, 
-                    message: 'Account is deactivated. Please contact administrator.' 
-                });
-            }
-
-            next();
-        } catch (error) {
-            console.error('Auth error:', error);
-            
-            if (error.name === 'JsonWebTokenError') {
-                return res.status(401).json({ 
-                    success: false, 
-                    message: 'Invalid token' 
-                });
-            }
-            
-            if (error.name === 'TokenExpiredError') {
-                return res.status(401).json({ 
-                    success: false, 
-                    message: 'Token expired. Please login again.' 
-                });
-            }
-            
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Not authorized' 
+        token = req.headers.authorization.split(' ')[1];
+    }
+    
+    // Check if token exists
+    if (!token) {
+        return res.status(401).json({
+            success: false,
+            message: 'Not authorized to access this route'
+        });
+    }
+    
+    try {
+        // Verify token
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        
+        // Get user from token
+        const user = await User.findById(decoded.id).select('-password');
+        
+        if (!user) {
+            return res.status(401).json({
+                success: false,
+                message: 'User not found'
             });
         }
-    }
-
-    if (!token) {
-        return res.status(401).json({ 
-            success: false, 
-            message: 'Not authorized, no token provided' 
+        
+        // Only populate roleId if the field exists in the user document
+        if (user.roleId) {
+            try {
+                await user.populate('roleId');
+            } catch (populateError) {
+                console.log('Could not populate roleId (field might not exist yet)');
+            }
+        }
+        
+        req.user = user;
+        next();
+    } catch (error) {
+        console.error('Auth middleware error:', error);
+        return res.status(401).json({
+            success: false,
+            message: 'Not authorized to access this route'
         });
     }
 };
 
-// Authorize based on roles
-const authorize = (...roles) => {
+// Authorize roles - role-based authorization (based on role name)
+exports.authorize = (...roles) => {
     return (req, res, next) => {
         if (!req.user) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Not authorized' 
+            return res.status(401).json({
+                success: false,
+                message: 'User not authenticated'
             });
         }
         
-        if (!roles.includes(req.user.role)) {
-            return res.status(403).json({ 
-                success: false, 
-                message: `Access denied. Role '${req.user.role}' is not authorized.`,
-                requiredRoles: roles
+        // Check by roleName if available, otherwise fallback to role field
+        const userRole = req.user.roleName || req.user.role;
+        
+        if (!userRole) {
+            return res.status(403).json({
+                success: false,
+                message: 'User role not found'
+            });
+        }
+        
+        if (!roles.includes(userRole.toLowerCase())) {
+            return res.status(403).json({
+                success: false,
+                message: `User role ${userRole} is not authorized to access this route`
             });
         }
         next();
     };
 };
 
-module.exports = { protect, authorize };
+// Check CRUD permissions based on role's permission object
+exports.checkPermission = (action) => {
+    return async (req, res, next) => {
+        try {
+            if (!req.user) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'User not authenticated'
+                });
+            }
+            
+            let hasPermission = false;
+            
+            // Try to get permissions from roleId if available
+            if (req.user.roleId) {
+                const role = req.user.roleId; // Already populated
+                hasPermission = role.permissions && role.permissions[action] === true;
+            } 
+            // Fallback: if roleId not available but role name is, find role by name
+            else if (req.user.roleName || req.user.role) {
+                const roleName = req.user.roleName || req.user.role;
+                const role = await Role.findOne({ name: roleName });
+                if (role) {
+                    hasPermission = role.permissions && role.permissions[action] === true;
+                    // Cache the roleId for future requests
+                    if (role && !req.user.roleId) {
+                        req.user.roleId = role._id;
+                        await req.user.save();
+                    }
+                }
+            }
+            
+            if (!hasPermission) {
+                return res.status(403).json({
+                    success: false,
+                    message: `You don't have permission to ${action} resources`
+                });
+            }
+            
+            // Attach role permissions to req for later use
+            req.userPermissions = req.user.roleId?.permissions || {};
+            next();
+        } catch (error) {
+            console.error('Permission check error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error checking permissions'
+            });
+        }
+    };
+};
+
+// Check specific module permissions (if you need module-level permissions)
+exports.checkModulePermission = (module, action) => {
+    return async (req, res, next) => {
+        try {
+            if (!req.user) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'User not authenticated'
+                });
+            }
+            
+            let userRole;
+            if (req.user.roleId) {
+                userRole = req.user.roleId;
+            } else if (req.user.roleName || req.user.role) {
+                const roleName = req.user.roleName || req.user.role;
+                userRole = await Role.findOne({ name: roleName });
+            }
+            
+            if (!userRole) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'User role not found'
+                });
+            }
+            
+            // For module-based permissions (if you extend the schema)
+            const hasPermission = userRole.permissions?.[module]?.[action] || false;
+            
+            if (!hasPermission) {
+                return res.status(403).json({
+                    success: false,
+                    message: `You don't have permission to ${action} ${module}`
+                });
+            }
+            
+            next();
+        } catch (error) {
+            console.error('Module permission check error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error checking module permissions'
+            });
+        }
+    };
+};

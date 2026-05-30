@@ -18,6 +18,7 @@ const userRoutes = require('./routes/userRoutes');
 const driverRoutes = require('./routes/driverRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
 const auditRoutes = require('./routes/auditRoutes');
+const ledgerRoutes = require('./routes/ledgerRoutes'); // NEW: Ledger routes
 //const roleRoutes = require('./routes/roleRoutes'); // If you created role management
 
 // Import middleware
@@ -51,8 +52,6 @@ app.use(cors({
     preflightContinue: false,
     optionsSuccessStatus: 204
 }));
-
-// REMOVED: app.options('*', cors()); - This line causes the error
 
 // Compression for better performance
 app.use(compression());
@@ -128,7 +127,9 @@ app.get('/', (req, res) => {
             users: '/api/users',
             drivers: '/api/drivers',
             vehicles: '/api/vehicles',
-            audit: '/api/audit-logs'
+            'audit-logs': '/api/audit-logs',
+            logs: '/api/logs', // NEW: Alias for audit-logs
+            ledgers: '/api/ledgers' // NEW: Ledger endpoints
         }
     });
 });
@@ -144,12 +145,26 @@ app.use((req, res, next) => {
 // Apply audit middleware to all API routes (optional)
 // app.use('/api', auditMiddleware);
 
-// API Routes
+// ============= API ROUTES =============
+
+// Existing Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/drivers', driverRoutes);
 app.use('/api/vehicles', vehicleRoutes);
 app.use('/api/audit-logs', auditRoutes);
+
+// NEW ROUTES ADDED BELOW:
+
+// 1. Ledger Routes (for dropdown data management)
+app.use('/api/ledgers', ledgerRoutes);
+
+// 2. Alias for audit logs (to support both /audit-logs and /logs)
+app.use('/api/logs', auditRoutes);
+
+// 3. Additional auth routes will be handled in authRoutes.js
+// (change-password, logout endpoints)
+
 //app.use('/api/roles', roleRoutes); // If you created role management
 
 // ============= ERROR HANDLING =============
@@ -236,7 +251,9 @@ const startServer = async () => {
             console.log(`   │   ├── POST   /api/auth/register`);
             console.log(`   │   ├── POST   /api/auth/login`);
             console.log(`   │   ├── GET    /api/auth/profile`);
-            console.log(`   │   └── PUT    /api/auth/profile`);
+            console.log(`   │   ├── PUT    /api/auth/profile`);
+            console.log(`   │   ├── POST   /api/auth/change-password ← NEW`);
+            console.log(`   │   └── POST   /api/auth/logout ← NEW`);
             console.log(`   │`);
             console.log(`   ├── User Routes:`);
             console.log(`   │   ├── GET    /api/users`);
@@ -267,18 +284,58 @@ const startServer = async () => {
             console.log(`   │   ├── PUT    /api/vehicles/:id/assign`);
             console.log(`   │   └── PUT    /api/vehicles/:id/unassign`);
             console.log(`   │`);
+            console.log(`   ├── Ledger Routes (NEW):`);
+            console.log(`   │   ├── Designations:`);
+            console.log(`   │   │   ├── GET    /api/ledgers/designations`);
+            console.log(`   │   │   ├── POST   /api/ledgers/designations`);
+            console.log(`   │   │   ├── GET    /api/ledgers/designations/:id`);
+            console.log(`   │   │   ├── PUT    /api/ledgers/designations/:id`);
+            console.log(`   │   │   └── DELETE /api/ledgers/designations/:id`);
+            console.log(`   │   ├── Locations:`);
+            console.log(`   │   │   ├── GET    /api/ledgers/locations`);
+            console.log(`   │   │   ├── POST   /api/ledgers/locations`);
+            console.log(`   │   │   ├── GET    /api/ledgers/locations/:id`);
+            console.log(`   │   │   ├── PUT    /api/ledgers/locations/:id`);
+            console.log(`   │   │   └── DELETE /api/ledgers/locations/:id`);
+            console.log(`   │   ├── Makes:`);
+            console.log(`   │   │   ├── GET    /api/ledgers/makes`);
+            console.log(`   │   │   ├── POST   /api/ledgers/makes`);
+            console.log(`   │   │   ├── GET    /api/ledgers/makes/:id`);
+            console.log(`   │   │   ├── PUT    /api/ledgers/makes/:id`);
+            console.log(`   │   │   └── DELETE /api/ledgers/makes/:id`);
+            console.log(`   │   ├── Vehicle Categories:`);
+            console.log(`   │   │   ├── GET    /api/ledgers/vehicle-categories`);
+            console.log(`   │   │   ├── POST   /api/ledgers/vehicle-categories`);
+            console.log(`   │   │   ├── GET    /api/ledgers/vehicle-categories/:id`);
+            console.log(`   │   │   ├── PUT    /api/ledgers/vehicle-categories/:id`);
+            console.log(`   │   │   └── DELETE /api/ledgers/vehicle-categories/:id`);
+            console.log(`   │   ├── Fuel Types:`);
+            console.log(`   │   │   ├── GET    /api/ledgers/fuel-types`);
+            console.log(`   │   │   ├── POST   /api/ledgers/fuel-types`);
+            console.log(`   │   │   ├── GET    /api/ledgers/fuel-types/:id`);
+            console.log(`   │   │   ├── PUT    /api/ledgers/fuel-types/:id`);
+            console.log(`   │   │   └── DELETE /api/ledgers/fuel-types/:id`);
+            console.log(`   │   └── Transmissions:`);
+            console.log(`   │       ├── GET    /api/ledgers/transmissions`);
+            console.log(`   │       ├── POST   /api/ledgers/transmissions`);
+            console.log(`   │       ├── GET    /api/ledgers/transmissions/:id`);
+            console.log(`   │       ├── PUT    /api/ledgers/transmissions/:id`);
+            console.log(`   │       └── DELETE /api/ledgers/transmissions/:id`);
+            console.log(`   │`);
             console.log(`   ├── Audit Log Routes:`);
             console.log(`   │   ├── GET    /api/audit-logs`);
             console.log(`   │   ├── GET    /api/audit-logs/stats`);
             console.log(`   │   ├── GET    /api/audit-logs/user/:userId`);
             console.log(`   │   └── GET    /api/audit-logs/:id`);
             console.log(`   │`);
-            console.log(`   └── Role Routes (if enabled):`);
-            console.log(`       ├── POST   /api/roles`);
-            console.log(`       ├── GET    /api/roles`);
-            console.log(`       ├── GET    /api/roles/:id`);
-            console.log(`       ├── PUT    /api/roles/:id`);
-            console.log(`       └── DELETE /api/roles/:id`);
+            console.log(`   └── Log Routes (Alias for Audit Logs):`);
+            console.log(`       ├── GET    /api/logs`);
+            console.log(`       ├── GET    /api/logs/recent`);
+            console.log(`       ├── GET    /api/logs/user/:userId`);
+            console.log(`       ├── GET    /api/logs/action/:action`);
+            console.log(`       ├── GET    /api/logs/entity/:entityType`);
+            console.log(`       ├── DELETE /api/logs/:id`);
+            console.log(`       └── DELETE /api/logs`);
             console.log(`\n${'='.repeat(50)}`);
             console.log(`✅ API is ready and listening on port ${PORT}`);
             console.log(`${'='.repeat(50)}\n`);

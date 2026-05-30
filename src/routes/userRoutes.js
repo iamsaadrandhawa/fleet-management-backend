@@ -1,46 +1,48 @@
+// routes/userRoutes.js
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
+const { protect, checkPermission } = require('../middleware/auth');
 const {
+    getAvailableRoles,
+    getAvailableDesignations,
     getAllUsers,
     getUserById,
     createUser,
     updateUser,
-    deleteUser,
-    hardDeleteUser,
     updateUserPassword,
-    getUsersByRole,
+    deleteUser,
+    
     getUserStats,
-    bulkUpdateStatus
+    getUsersByRole,
+    bulkUpdateStatus,
+    bulkAssignRole
 } = require('../controllers/userController');
 
-// All routes are protected
+// All routes require authentication
 router.use(protect);
 
-// User management routes
-router.route('/')
-    .get(authorize('admin', 'manager'), getAllUsers)
-    .post(authorize('admin'), createUser);
+// Get available data for dropdowns
+router.get('/available-roles', checkPermission('read'), getAvailableRoles);
+router.get('/available-designations', checkPermission('read'), getAvailableDesignations);
 
-// Statistics
-router.get('/stats', authorize('admin', 'manager'), getUserStats);
-
-// Users by role
-router.get('/role/:role', authorize('admin', 'manager'), getUsersByRole);
+// User statistics
+router.get('/stats', checkPermission('read'), getUserStats);
 
 // Bulk operations
-router.patch('/bulk/status', authorize('admin'), bulkUpdateStatus);
+router.patch('/bulk/status', checkPermission('update'), bulkUpdateStatus);
+router.patch('/bulk/role', checkPermission('update'), bulkAssignRole);
 
-// User specific routes
-router.route('/:id')
-    .get(authorize('admin', 'manager'), getUserById)
-    .put(authorize('admin'), updateUser)
-    .delete(authorize('admin'), deleteUser);
+// Get users by role
+router.get('/role/:roleId', checkPermission('read'), getUsersByRole);
 
-// Hard delete
-router.delete('/:id/hard', authorize('admin'), hardDeleteUser);
+// Password update
+router.put('/:id/password', checkPermission('update'), updateUserPassword);
 
-// Password management
-router.put('/:id/password', authorize('admin'), updateUserPassword);
+// Standard CRUD operations
+router.get('/', checkPermission('read'), getAllUsers);
+router.get('/:id', checkPermission('read'), getUserById);
+router.post('/', checkPermission('create'), createUser);
+router.put('/:id', checkPermission('update'), updateUser);
+router.delete('/:id', checkPermission('delete'), deleteUser);
 
 module.exports = router;

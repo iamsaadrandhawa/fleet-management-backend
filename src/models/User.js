@@ -1,8 +1,20 @@
+// src/models/User.js
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-    name: {
+    employeeId: {
+        type: String,
+        required: true,
+        unique: true,
+        trim: true
+    },
+    firstName: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    lastName: {
         type: String,
         required: true,
         trim: true
@@ -11,74 +23,66 @@ const userSchema = new mongoose.Schema({
         type: String,
         required: true,
         unique: true,
-        lowercase: true
+        lowercase: true,
+        trim: true
+    },
+    department: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    designationId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Designation',
+        required: false,  // ✅ MUST BE false
+        default: null      // ✅ Add default
+    },
+    designationName: {
+        type: String,
+        default: ''
+    },
+    roleId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Role',
+        required: true
+    },
+    roleName: {
+        type: String,
+        default: ''
+    },
+    phone: {
+        type: String,
+        required: true,
+        trim: true
+    },
+    location: {
+        type: String,
+        required: true,
+        trim: true
     },
     password: {
         type: String,
         required: true
     },
-    role: {
-        type: String,
-        enum: ['admin', 'manager', 'driver', 'audit', 'viewer'],
-        default: 'viewer'
-    },
     isActive: {
         type: Boolean,
         default: true
     },
-    phone: String,
-    address: String,
-    lastLogin: Date
-}, {
-    timestamps: true
-});
-
-// Pre-save hook to hash password - CORRECTED VERSION
-userSchema.pre('save', async function(next) {
-    try {
-        console.log('Pre-save hook triggered for user:', this.email);
-        
-        // Only hash if password is modified
-        if (!this.isModified('password')) {
-            console.log('Password not modified, skipping hash');
-            return; // Just return, don't call next()
-        }
-        
-        console.log('Hashing password...');
-        const salt = await bcrypt.genSalt(10);
-        console.log('Salt generated');
-        
-        this.password = await bcrypt.hash(this.password, salt);
-        console.log('Password hashed successfully');
-        
-        // Don't call next() here - the promise resolves automatically
-    } catch (error) {
-        console.error('Error in pre-save hook:', error);
-        throw error; // Throw the error instead of calling next(error)
+    lastLogin: {
+        type: Date
     }
+}, { timestamps: true });
+
+// Virtual for full name
+userSchema.virtual('fullName').get(function() {
+    return `${this.firstName} ${this.lastName}`;
 });
 
 // Compare password method
 userSchema.methods.comparePassword = async function(candidatePassword) {
-    try {
-        console.log('Comparing password for user:', this.email);
-        const isMatch = await bcrypt.compare(candidatePassword, this.password);
-        console.log('Password comparison result:', isMatch);
-        return isMatch;
-    } catch (error) {
-        console.error('Error comparing password:', error);
-        throw error;
-    }
+    return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Handle any errors after save (optional)
-userSchema.post('save', function(error, doc, next) {
-    if (error) {
-        console.error('Error after save:', error);
-        next(error);
-    } else {
-        next();
-    }
-});
+// ✅ NO pre-save hooks - remove them completely
 
 module.exports = mongoose.model('User', userSchema);
