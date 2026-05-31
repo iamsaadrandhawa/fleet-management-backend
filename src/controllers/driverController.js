@@ -79,27 +79,27 @@ const addDriver = async (req, res) => {
     const driver = await Driver.create(driverData);
     console.log('Driver created:', driver._id);
 
-    // ── UPDATE VEHICLE ASSIGNMENT ──
+    // ⭐⭐⭐ CRITICAL: UPDATE VEHICLE ASSIGNMENT ⭐⭐⭐
     if (allocatedVehicle && allocatedVehicle !== 'null' && allocatedVehicle !== '') {
-      try {
-        const vehicle = await Vehicle.findById(allocatedVehicle);
-        if (!vehicle) {
-          return res.status(400).json({ success: false, message: 'Vehicle not found' });
-        }
+      console.log(`Attempting to assign vehicle ${allocatedVehicle} to driver ${driver._id}`);
+      
+      const vehicle = await Vehicle.findById(allocatedVehicle);
+      if (vehicle) {
+        console.log(`Before update - Vehicle assignedTo: ${vehicle.assignedTo}`);
         
-        // Assign vehicle to this driver
         vehicle.assignedTo = driver._id;
         vehicle.updatedBy = req.user.id;
         await vehicle.save();
+        
+        console.log(`After update - Vehicle assignedTo: ${vehicle.assignedTo}`);
         console.log(`✅ Vehicle ${allocatedVehicle} assigned to driver ${driver._id}`);
-      } catch (vehicleError) {
-        console.error('❌ Vehicle assignment error:', vehicleError);
-        return res.status(500).json({ success: false, message: 'Failed to assign vehicle', error: vehicleError.message });
+      } else {
+        console.log(`❌ Vehicle ${allocatedVehicle} not found`);
       }
     }
 
     // Return driver with populated vehicle
-    const populatedDriver = await Driver.findById(driver._id).populate('allocatedVehicle', 'company model vehicleNumber registrationNumber');
+    const populatedDriver = await Driver.findById(driver._id).populate('allocatedVehicle', 'company model vehicleNumber registrationNumber assignedTo');
 
     res.status(201).json({ success: true, message: 'Driver added successfully', data: populatedDriver });
   } catch (error) {
@@ -159,48 +159,39 @@ const updateDriver = async (req, res) => {
     
     driver.allocatedVehicle = newVehicleId || null;
 
-    // ── HANDLE VEHICLE ASSIGNMENT CHANGES ──
-    try {
-      // Unassign old vehicle
-      if (oldVehicleId && oldVehicleId !== newVehicleId) {
-        const oldVehicle = await Vehicle.findById(oldVehicleId);
-        if (oldVehicle) {
-          oldVehicle.assignedTo = null;
-          oldVehicle.updatedBy = req.user.id;
-          await oldVehicle.save();
-          console.log(`✅ Vehicle ${oldVehicleId} unassigned from driver`);
-        }
+    // ⭐⭐⭐ HANDLE VEHICLE ASSIGNMENT CHANGES ⭐⭐⭐
+    
+    // 1. Unassign old vehicle
+    if (oldVehicleId && oldVehicleId !== newVehicleId) {
+      console.log(`Unassigning old vehicle: ${oldVehicleId}`);
+      const oldVehicle = await Vehicle.findById(oldVehicleId);
+      if (oldVehicle) {
+        oldVehicle.assignedTo = null;
+        oldVehicle.updatedBy = req.user.id;
+        await oldVehicle.save();
+        console.log(`✅ Vehicle ${oldVehicleId} unassigned`);
       }
-      
-      // Assign new vehicle
-      if (newVehicleId && newVehicleId !== 'null' && newVehicleId !== '') {
-        const newVehicle = await Vehicle.findById(newVehicleId);
-        if (newVehicle) {
-          // Check if vehicle is already assigned to another driver
-          if (newVehicle.assignedTo && newVehicle.assignedTo.toString() !== driver._id.toString()) {
-            return res.status(400).json({
-              success: false,
-              message: 'This vehicle is already assigned to another driver'
-            });
-          }
-          newVehicle.assignedTo = driver._id;
-          newVehicle.updatedBy = req.user.id;
-          await newVehicle.save();
-          console.log(`✅ Vehicle ${newVehicleId} assigned to driver ${driver._id}`);
-        } else {
+    }
+    
+    // 2. Assign new vehicle
+    if (newVehicleId && newVehicleId !== 'null' && newVehicleId !== '') {
+      console.log(`Assigning new vehicle: ${newVehicleId}`);
+      const newVehicle = await Vehicle.findById(newVehicleId);
+      if (newVehicle) {
+        // Check if vehicle is already assigned to another driver
+        if (newVehicle.assignedTo && newVehicle.assignedTo.toString() !== driver._id.toString()) {
           return res.status(400).json({
             success: false,
-            message: 'Vehicle not found'
+            message: 'This vehicle is already assigned to another driver'
           });
         }
+        newVehicle.assignedTo = driver._id;
+        newVehicle.updatedBy = req.user.id;
+        await newVehicle.save();
+        console.log(`✅ Vehicle ${newVehicleId} assigned to driver ${driver._id}`);
+      } else {
+        console.log(`❌ Vehicle ${newVehicleId} not found`);
       }
-    } catch (vehicleError) {
-      console.error('❌ Vehicle assignment error:', vehicleError);
-      return res.status(500).json({ 
-        success: false, 
-        message: 'Failed to update vehicle assignment', 
-        error: vehicleError.message 
-      });
     }
 
     // Handle profile picture
@@ -222,7 +213,7 @@ const updateDriver = async (req, res) => {
     await driver.save();
 
     // Return populated driver
-    const populatedDriver = await Driver.findById(driver._id).populate('allocatedVehicle', 'company model vehicleNumber registrationNumber');
+    const populatedDriver = await Driver.findById(driver._id).populate('allocatedVehicle', 'company model vehicleNumber registrationNumber assignedTo');
 
     res.status(200).json({ success: true, message: 'Driver updated successfully', data: populatedDriver });
   } catch (error) {
@@ -245,12 +236,13 @@ const deleteDriver = async (req, res) => {
 
     // Unassign vehicle if allocated
     if (driver.allocatedVehicle) {
+      console.log(`Unassigning vehicle ${driver.allocatedVehicle} from driver ${driver._id}`);
       const vehicle = await Vehicle.findById(driver.allocatedVehicle);
       if (vehicle) {
         vehicle.assignedTo = null;
         vehicle.updatedBy = req.user.id;
         await vehicle.save();
-        console.log(`✅ Vehicle ${driver.allocatedVehicle} unassigned from driver`);
+        console.log(`✅ Vehicle ${driver.allocatedVehicle} unassigned`);
       }
     }
 
@@ -345,46 +337,6 @@ const updateDriverStatus = async (req, res) => {
   }
 };
 
-// ─────────────────────────────────────────────────────────────
-// @desc    TEST: Manually assign vehicle to driver
-// @route   POST /api/drivers/test-assign
-// @access  Private
-// ─────────────────────────────────────────────────────────────
-const testAssignVehicle = async (req, res) => {
-  try {
-    const { vehicleId, driverId } = req.body;
-    
-    console.log('=== TEST ASSIGNMENT ===');
-    console.log('Vehicle ID:', vehicleId);
-    console.log('Driver ID:', driverId);
-    
-    // Update vehicle
-    const vehicle = await Vehicle.findByIdAndUpdate(
-      vehicleId,
-      { assignedTo: driverId },
-      { new: true }
-    );
-    
-    if (!vehicle) {
-      return res.status(404).json({ success: false, message: 'Vehicle not found' });
-    }
-    
-    console.log('Vehicle after update:', {
-      _id: vehicle._id,
-      assignedTo: vehicle.assignedTo
-    });
-    
-    res.status(200).json({
-      success: true,
-      message: 'Vehicle assigned successfully',
-      data: vehicle
-    });
-  } catch (error) {
-    console.error('Test assign error:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-};
-
 module.exports = {
   addDriver,
   getAllDrivers,
@@ -393,5 +345,4 @@ module.exports = {
   deleteDriver,
   getDriversByStatus,
   updateDriverStatus,
-  testAssignVehicle,
 };
