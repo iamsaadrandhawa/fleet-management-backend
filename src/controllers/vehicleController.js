@@ -110,7 +110,7 @@ const getAllVehicles = async (req, res) => {
         if (status) query.status = status;
 
         const vehicles = await Vehicle.find(query)
-            .populate('assignedTo', 'name employeeId phoneNumber')
+            .populate('assignedTo', 'firstName lastName employeeId phoneNumber location')
             .populate('createdBy', 'name')
             .limit(limit * 1)
             .skip((page - 1) * limit)
@@ -142,7 +142,7 @@ const getAllVehicles = async (req, res) => {
 const getVehicleById = async (req, res) => {
     try {
         const vehicle = await Vehicle.findById(req.params.id)
-            .populate('assignedTo', 'name employeeId phoneNumber location')
+            .populate('assignedTo', 'firstName lastName employeeId phoneNumber location department')
             .populate('createdBy', 'name email')
             .populate('updatedBy', 'name email');
 
