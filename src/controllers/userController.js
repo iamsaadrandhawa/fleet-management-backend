@@ -464,7 +464,8 @@ module.exports = {
     createUser,
     updateUser,
     updateUserPassword,
-    deleteUser,
+    deleteUser,        // Hard delete
+    deactivateUser,    // ← ADD THIS - Soft delete
     getUserStats,
     getUsersByRole,
     bulkUpdateStatus,
