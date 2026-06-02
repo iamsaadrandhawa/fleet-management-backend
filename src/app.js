@@ -17,12 +17,9 @@ const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
 const driverRoutes = require('./routes/driverRoutes');
 const vehicleRoutes = require('./routes/vehicleRoutes');
-const auditRoutes = require('./routes/auditRoutes');
 const ledgerRoutes = require('./routes/ledgerRoutes'); // NEW: Ledger routes
-//const roleRoutes = require('./routes/roleRoutes'); // If you created role management
+const auditRoutes = require('./routes/auditRoutes');
 
-// Import middleware
-const auditMiddleware = require('./middleware/auditMiddleware');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -127,7 +124,6 @@ app.get('/', (req, res) => {
             users: '/api/users',
             drivers: '/api/drivers',
             vehicles: '/api/vehicles',
-            'audit-logs': '/api/audit-logs',
             logs: '/api/logs', // NEW: Alias for audit-logs
             ledgers: '/api/ledgers' // NEW: Ledger endpoints
         }
