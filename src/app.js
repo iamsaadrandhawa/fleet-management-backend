@@ -5,7 +5,6 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const compression = require('compression');
-const fileUpload = require('express-fileupload');
 const path = require('path');
 require('dotenv').config();
 
@@ -52,14 +51,6 @@ app.use(cors({
 
 // Compression for better performance
 app.use(compression());
-
-// File upload middleware
-app.use(fileUpload({
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
-    abortOnLimit: true,
-    responseOnLimit: 'File size limit exceeded (max 5MB)',
-    createParentPath: true
-}));
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
