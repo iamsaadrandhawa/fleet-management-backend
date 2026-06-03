@@ -135,8 +135,8 @@ class AuditService {
             'USER': 'User',
             'DRIVER': 'Driver',
             'VEHICLE': 'Vehicle',
-            'MAINTENANCE': 'Maintenance',
-            'ROLE': 'Role'
+            'ROLE': 'Role',
+            'LEDGER': 'Ledger'
         };
         return map[module] || module;
     }

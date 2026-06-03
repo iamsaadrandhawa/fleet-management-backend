@@ -24,7 +24,7 @@ exports.protect = async (req, res, next) => {
         // Verify token
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         
-        // Get user from token
+        // Get user from token and populate role
         const user = await User.findById(decoded.id).select('-password');
         
         if (!user) {
@@ -34,13 +34,15 @@ exports.protect = async (req, res, next) => {
             });
         }
         
-        // Only populate roleId if the field exists in the user document
+        // Populate roleId if it exists
         if (user.roleId) {
             try {
                 await user.populate('roleId');
-                // Set roleName from populated role for consistency
-                if (user.roleId && user.roleId.name) {
+                // Set roleName and permissions from populated role
+                if (user.roleId) {
                     user.roleName = user.roleId.name;
+                    user.rolePermissions = user.roleId.permissions;
+                    user.tabPermissions = user.roleId.tabPermissions;
                 }
             } catch (populateError) {
                 console.log('Could not populate roleId (field might not exist yet)');
@@ -80,13 +82,6 @@ exports.authorize = (...roles) => {
         if (!userRole && req.user.roleId && typeof req.user.roleId === 'object') {
             userRole = req.user.roleId.name;
         }
-        
-        // Debug logging - remove in production
-        console.log('=== AUTHORIZE DEBUG ===');
-        console.log('User role found:', userRole);
-        console.log('Allowed roles:', roles);
-        console.log('User object keys:', Object.keys(req.user));
-        console.log('=======================');
         
         if (!userRole) {
             return res.status(403).json({
@@ -162,6 +157,181 @@ exports.checkPermission = (action) => {
             });
         }
     };
+};
+
+// Check tab access permission
+exports.checkTabAccess = (tabId) => {
+    return async (req, res, next) => {
+        try {
+            if (!req.user) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'User not authenticated'
+                });
+            }
+            
+            let hasAccess = false;
+            
+            // Try to get tab permissions from roleId if available
+            if (req.user.roleId) {
+                const role = req.user.roleId; // Already populated
+                hasAccess = role.tabPermissions && role.tabPermissions[tabId] === true;
+            } 
+            // Fallback: if roleId not available but role name is, find role by name
+            else if (req.user.roleName || req.user.role) {
+                const roleName = req.user.roleName || req.user.role;
+                const role = await Role.findOne({ name: roleName });
+                if (role) {
+                    hasAccess = role.tabPermissions && role.tabPermissions[tabId] === true;
+                    // Cache the roleId for future requests
+                    if (role && !req.user.roleId) {
+                        req.user.roleId = role._id;
+                        await req.user.save();
+                    }
+                }
+            }
+            
+            if (!hasAccess) {
+                return res.status(403).json({
+                    success: false,
+                    message: `You don't have access to the "${tabId}" section`
+                });
+            }
+            
+            // Attach tab permissions to req for later use
+            req.userTabPermissions = req.user.roleId?.tabPermissions || {};
+            next();
+        } catch (error) {
+            console.error('Tab access check error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error checking tab access'
+            });
+        }
+    };
+};
+
+// Combined permission check (both CRUD and tab access)
+exports.checkFullPermission = (tabId, action) => {
+    return async (req, res, next) => {
+        try {
+            if (!req.user) {
+                return res.status(401).json({
+                    success: false,
+                    message: 'User not authenticated'
+                });
+            }
+            
+            let hasTabAccess = false;
+            let hasCrudPermission = false;
+            let role = null;
+            
+            // Get role with permissions
+            if (req.user.roleId) {
+                role = req.user.roleId;
+            } else if (req.user.roleName || req.user.role) {
+                const roleName = req.user.roleName || req.user.role;
+                role = await Role.findOne({ name: roleName });
+                if (role && !req.user.roleId) {
+                    req.user.roleId = role._id;
+                    await req.user.save();
+                }
+            }
+            
+            if (!role) {
+                return res.status(403).json({
+                    success: false,
+                    message: 'User role not found'
+                });
+            }
+            
+            // Check tab access
+            hasTabAccess = role.tabPermissions && role.tabPermissions[tabId] === true;
+            
+            // Check CRUD permission
+            hasCrudPermission = role.permissions && role.permissions[action] === true;
+            
+            if (!hasTabAccess) {
+                return res.status(403).json({
+                    success: false,
+                    message: `You don't have access to the "${tabId}" section`
+                });
+            }
+            
+            if (!hasCrudPermission) {
+                return res.status(403).json({
+                    success: false,
+                    message: `You don't have permission to ${action} resources in this section`
+                });
+            }
+            
+            // Attach permissions to req for later use
+            req.userPermissions = role.permissions || {};
+            req.userTabPermissions = role.tabPermissions || {};
+            next();
+        } catch (error) {
+            console.error('Full permission check error:', error);
+            return res.status(500).json({
+                success: false,
+                message: 'Error checking permissions'
+            });
+        }
+    };
+};
+
+// Get user's accessible tabs (useful for frontend)
+exports.getUserAccessibleTabs = async (req, res) => {
+    try {
+        if (!req.user) {
+            return res.status(401).json({
+                success: false,
+                message: 'User not authenticated'
+            });
+        }
+        
+        let role = null;
+        
+        if (req.user.roleId) {
+            role = req.user.roleId;
+        } else if (req.user.roleName || req.user.role) {
+            const roleName = req.user.roleName || req.user.role;
+            role = await Role.findOne({ name: roleName });
+        }
+        
+        if (!role) {
+            return res.status(404).json({
+                success: false,
+                message: 'Role not found'
+            });
+        }
+        
+        // Get accessible tabs
+        const accessibleTabs = [];
+        if (role.tabPermissions) {
+            Object.keys(role.tabPermissions).forEach(tabId => {
+                if (role.tabPermissions[tabId] === true) {
+                    accessibleTabs.push(tabId);
+                }
+            });
+        }
+        
+        res.json({
+            success: true,
+            data: {
+                roleId: role._id,
+                roleName: role.name,
+                accessibleTabs,
+                tabPermissions: role.tabPermissions,
+                crudPermissions: role.permissions
+            }
+        });
+    } catch (error) {
+        console.error('Get accessible tabs error:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error fetching accessible tabs'
+        });
+    }
 };
 
 // Check specific module permissions (if you need module-level permissions)

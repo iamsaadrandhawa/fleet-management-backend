@@ -1,19 +1,51 @@
 // src/models/Ledger.js
 const mongoose = require('mongoose');
 
-// Role Schema
+// Role Schema with integrated tab permissions
 const roleSchema = new mongoose.Schema({
     name: { type: String, required: true, unique: true, trim: true },
     code: { type: String, unique: true, trim: true },
     description: { type: String, trim: true },
     status: { type: String, default: 'active', enum: ['active', 'inactive'] },
+    
+    // CRUD Permissions
     permissions: {
         create: { type: Boolean, default: false },
         read: { type: Boolean, default: false },
         update: { type: Boolean, default: false },
         delete: { type: Boolean, default: false }
+    },
+    
+    // Tab Permissions - Part of Role schema
+    tabPermissions: {
+        dashboard: { type: Boolean, default: false },
+        'add-driver': { type: Boolean, default: false },
+        'add-vehicle': { type: Boolean, default: false },
+        'driver-list': { type: Boolean, default: false },
+        'vehicle-list': { type: Boolean, default: false },
+        users: { type: Boolean, default: false },
+        ledgers: { type: Boolean, default: false },
+        settings: { type: Boolean, default: false }
     }
 }, { timestamps: true });
+
+// Helper method to check CRUD permission
+roleSchema.methods.hasPermission = function(action) {
+    const actions = ['create', 'read', 'update', 'delete'];
+    if (!actions.includes(action)) return false;
+    return this.permissions?.[action] === true;
+};
+
+// Helper method to check tab access permission
+roleSchema.methods.hasTabAccess = function(tabId) {
+    return this.tabPermissions?.[tabId] === true;
+};
+
+// Helper method to get all accessible tabs
+roleSchema.methods.getAccessibleTabs = function() {
+    if (!this.tabPermissions) return [];
+    return Object.keys(this.tabPermissions.toObject()).filter(tabId => this.tabPermissions[tabId] === true);
+};
 
 // Designation Schema
 const designationSchema = new mongoose.Schema({
@@ -62,15 +94,7 @@ const transmissionSchema = new mongoose.Schema({
     status: { type: String, default: 'active', enum: ['active', 'inactive'] }
 }, { timestamps: true });
 
-// Helper method
-roleSchema.methods.hasPermission = function(action) {
-    const actions = ['create', 'read', 'update', 'delete'];
-    if (!actions.includes(action)) return false;
-    return this.permissions?.[action] === true;
-};
-
-// ✅ SIMPLIFIED - No pre-save middleware at all
-// Just create the models directly
+// Create models
 const Role = mongoose.models.Role || mongoose.model('Role', roleSchema);
 const Designation = mongoose.models.Designation || mongoose.model('Designation', designationSchema);
 const Location = mongoose.models.Location || mongoose.model('Location', locationSchema);
